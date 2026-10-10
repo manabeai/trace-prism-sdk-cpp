@@ -24,4 +24,3 @@ record(traceprism::span(step), TP_FIELD(values), TP_FIELD(left), TP_FIELD(right)
 
 ![C++ サンプルの実行画面](assets/runtime.png)
 
-MIT License。
