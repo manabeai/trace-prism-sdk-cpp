@@ -17,7 +17,8 @@ cmake --build build
 #define record(...) ((void)0)
 #endif
 
-record(traceprism::span(step), TP_FIELD(values), TP_FIELD(left), TP_FIELD(right));
+record(step, values, left, right);
+record({step, phase}, values, left, right); // 複数要素の ID
 ```
 
 値は snapshot／patch 形式の `viz.trace/v2` に保存され、TracePrism の Runs に表示されます。構造体は `nlohmann::json` の `to_json` を定義すれば記録できます。保存先は `TRACEPRISM_RUN_DIR`、単一ファイルの保存先は `VIZ_TRACE_PATH` で指定できます。

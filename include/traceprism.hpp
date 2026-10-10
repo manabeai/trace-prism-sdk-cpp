@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -109,7 +110,19 @@ inline std::string run_id() {
 
 } // namespace detail
 
-struct Span { Json segments = Json::array(); };
+struct Span {
+    Json segments = Json::array();
+
+    Span() = default;
+
+    Span(std::initializer_list<Json> values) {
+        for (const auto& value : values) segments.push_back(detail::scalar(value));
+    }
+
+    template <typename T>
+        requires (!std::is_same_v<std::remove_cvref_t<T>, Span>)
+    Span(const T& value) { segments.push_back(detail::scalar(Json(value))); }
+};
 
 template <typename... T>
 Span span(const T&... segments) {
@@ -146,7 +159,51 @@ Field field(std::string name, const std::map<K, V, Compare, Allocator>& values) 
     return {std::move(name), {{"t", "map"}, {"entries", std::move(entries)}}};
 }
 
+template <typename T>
+Field named(std::string_view name, const T& value) {
+    return field(std::string(name), value);
+}
+
+inline Field named(std::string_view, Field value) { return value; }
+inline Origin named(std::string_view, Origin value) { return value; }
+
 namespace detail {
+
+inline std::string_view trim(std::string_view text) {
+    const auto start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string_view::npos) return {};
+    return text.substr(start, text.find_last_not_of(" \t\r\n") - start + 1);
+}
+
+inline std::vector<std::string_view> argument_names(std::string_view text) {
+    std::vector<std::string_view> result;
+    int round = 0, square = 0, curly = 0;
+    char quote = '\0';
+    bool escaped = false;
+    std::size_t start = 0;
+    for (std::size_t index = 0; index < text.size(); ++index) {
+        const char ch = text[index];
+        if (quote) {
+            if (escaped) escaped = false;
+            else if (ch == '\\') escaped = true;
+            else if (ch == quote) quote = '\0';
+            continue;
+        }
+        if (ch == '"' || ch == '\'') quote = ch;
+        else if (ch == '(') ++round;
+        else if (ch == ')') --round;
+        else if (ch == '[') ++square;
+        else if (ch == ']') --square;
+        else if (ch == '{') ++curly;
+        else if (ch == '}') --curly;
+        else if (ch == ',' && round == 0 && square == 0 && curly == 0) {
+            result.push_back(trim(text.substr(start, index - start)));
+            start = index + 1;
+        }
+    }
+    result.push_back(trim(text.substr(start)));
+    return result;
+}
 
 inline void collect(std::vector<Field>& fields, std::optional<Origin>&, Field field) {
     fields.push_back(std::move(field));
@@ -234,11 +291,26 @@ FrameRef record_at(const char* file, int line, Span span, T... args) {
     return detail::recorder().write(file, line, std::move(span), std::move(fields), std::move(origin));
 }
 
+template <typename... T>
+FrameRef record_named_at(const char* file, int line, std::string_view arguments,
+                         Span span, T&&... args) {
+    const auto names = detail::argument_names(arguments);
+    if (names.size() != sizeof...(T) + 1)
+        throw std::invalid_argument("TracePrism: unable to identify record arguments");
+    std::vector<Field> fields;
+    std::optional<Origin> origin;
+    if constexpr (sizeof...(T) > 0) {
+        std::size_t index = 1;
+        (detail::collect(fields, origin, named(names[index++], std::forward<T>(args))), ...);
+    }
+    return detail::recorder().write(file, line, std::move(span), std::move(fields), std::move(origin));
+}
+
 } // namespace traceprism
 
 #ifdef DEBUG
 #define TP_FIELD(name) ::traceprism::field(#name, (name))
-#define record(...) ::traceprism::record_at(__FILE__, __LINE__, __VA_ARGS__)
+#define record(...) ::traceprism::record_named_at(__FILE__, __LINE__, #__VA_ARGS__, __VA_ARGS__)
 #else
 #define record(...) ((void)0)
 #endif

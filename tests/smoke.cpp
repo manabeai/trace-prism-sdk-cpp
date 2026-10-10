@@ -16,15 +16,17 @@ int main() {
     State state{2, {0, 3, 8}};
     std::set<int> visited{0, 2};
     std::map<int, bool> active{{0, true}, {2, false}};
-    auto first = record(traceprism::span("root", 0),
-                        TP_FIELD(state), TP_FIELD(visited), TP_FIELD(active));
+    const int step1 = 0;
+    const int step2 = 1;
+    auto first = record({step1, step2}, state, visited, active);
     assert(first.seq == 0);
     state.node = 3;
-    auto second = record(traceprism::span("child", 1), traceprism::from(first),
-                         TP_FIELD(state));
+    auto second = record({"child", 1}, traceprism::from(first), state);
     assert(second.seq == 1);
-    auto third = record(traceprism::span("other", 2),
-                        traceprism::from(traceprism::span("root", 0)),
+    auto third = record({"other", 2},
+                        traceprism::from(traceprism::span(step1, step2)),
                         TP_FIELD(state));
     assert(third.seq == 2);
+    auto fourth = record(3);
+    assert(fourth.seq == 3);
 }
